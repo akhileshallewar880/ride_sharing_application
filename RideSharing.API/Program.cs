@@ -88,6 +88,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     options.Authority = builder.Configuration["JwtSettings:validIssuer"];
     options.Audience = builder.Configuration["JwtSettings:validAudience"];
     options.RequireHttpsMetadata = false;
+    var jwtSecret = builder.Configuration["JwtSettings:secretKey"] ?? builder.Configuration["JwtSettings:SecretKey"];
+    if (string.IsNullOrWhiteSpace(jwtSecret))
+    {
+        throw new InvalidOperationException("JWT secret key is not configured. Set configuration key 'JwtSettings:secretKey'.");
+    }
     options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -96,7 +101,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["JwtSettings:validIssuer"],
         ValidAudience = builder.Configuration["JwtSettings:validAudience"],
-        IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(builder.Configuration["JwtSettings:secretKey"]))
+        IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(jwtSecret))
     };
 });
 
@@ -108,6 +113,25 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+}
+
+// Ensure databases are migrated/created on startup (useful in Production deployments)
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var services = scope.ServiceProvider;
+        var authDb = services.GetRequiredService<RideSharingAuthDbContext>();
+        authDb.Database.Migrate();
+        var appDb = services.GetRequiredService<RideSharingDbContext>();
+        appDb.Database.Migrate();
+    }
+    catch (Exception ex)
+    {
+        // Log and continue; middleware will handle subsequent requests
+        var migLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("StartupMigration");
+        migLogger.LogError(ex, "Database migration failed on startup");
+    }
 }
 
 app.UseMiddleware<ExceptionHandlerMiddleware>();

@@ -19,14 +19,25 @@ public class TokenRepository : ITokenRepository
         // Implementation for creating JWT token
         // Create Claims from user and roles
         var claimms = new List<Claim>();
-            claimms.Add(new Claim(ClaimTypes.Email, user.Email));
+            if (!string.IsNullOrWhiteSpace(user.Email))
+            {
+                claimms.Add(new Claim(ClaimTypes.Email, user.Email));
+            }
+            // Always include user id
+            claimms.Add(new Claim(ClaimTypes.NameIdentifier, user.Id));
 
             foreach (var role in roles)
             {
                 claimms.Add(new Claim(ClaimTypes.Role, role));
             }
 
-            var key = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(configuration["JwtSettings:SecretKey"]));
+            // Note: appsettings uses 'secretKey' (lowercase 's'); ensure we read the correct key
+            var secret = configuration["JwtSettings:secretKey"] ?? configuration["JwtSettings:SecretKey"];
+            if (string.IsNullOrWhiteSpace(secret))
+            {
+                throw new InvalidOperationException("JWT secret key is not configured. Set JwtSettings:secretKey.");
+            }
+            var key = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(secret));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(

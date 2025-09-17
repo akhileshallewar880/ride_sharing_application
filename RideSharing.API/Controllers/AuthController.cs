@@ -33,16 +33,32 @@ namespace RideSharing.API.Controllers
             };
 
             var result = await _userManager.CreateAsync(user, registerUserDto.Password);
-            if (result.Succeeded)
+            if (!result.Succeeded)
             {
-                await _userManager.AddToRoleAsync(user, registerUserDto.Role);
-                return CreatedAtAction(nameof(Register), new { id = user.Id }, user);
+                // Return detailed validation errors instead of a generic message
+                return BadRequest(new
+                {
+                    Errors = result.Errors.Select(e => e.Description)
+                });
             }
 
-            return BadRequest("Internal server error");
+            var roleResult = await _userManager.AddToRoleAsync(user, registerUserDto.Role);
+            if (!roleResult.Succeeded)
+            {
+                // If adding role fails, delete the created user to keep state clean (best-effort)
+                await _userManager.DeleteAsync(user);
+                return BadRequest(new
+                {
+                    Errors = roleResult.Errors.Select(e => e.Description)
+                });
+            }
+
+            // Avoid CreatedAtAction because there is no GET endpoint to resolve; return a simple success payload
+            return Ok(new { Id = user.Id, Email = user.Email, Role = registerUserDto.Role });
         }
 
         [HttpPost("login")]
+        [ValidateModel]
         public async Task<IActionResult> Login([FromBody] UserLoginDto loginUserDto)
         {
             var user = await _userManager.FindByNameAsync(loginUserDto.UserName);
